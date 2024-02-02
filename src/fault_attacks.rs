@@ -20,6 +20,7 @@ use itertools::Itertools;
 
 use log::debug;
 
+use crate::fault::{FaultData, SimulationFaultRecord, TracePoint};
 use crate::FaultType;
 
 pub struct FaultAttacks {
@@ -160,7 +161,7 @@ impl FaultAttacks {
                         trace_run(file_data, false, low_complexity, vec![fault_record.clone()]);
 
                     n.fetch_add(intermediate_trace_records.len(), Ordering::Relaxed);
-                    // Run full test with intemediate trace data
+                    // Run full test with intermediate trace data
                     intermediate_trace_records.into_iter().enumerate().for_each(
                         |(index, intermediate_trace_records)| {
                             let intermediate_fault_record = intermediate_trace_records

@@ -1,4 +1,7 @@
-use crate::FaultType;
+use crate::{
+    fault::{FaultData, SimulationFaultRecord, TracePoint},
+    FaultType,
+};
 
 use super::ElfFile;
 
@@ -6,7 +9,7 @@ mod callback;
 use callback::*;
 
 use log::debug;
-use std::{collections::HashSet, fmt};
+use std::collections::HashSet;
 use unicorn_engine::{
     uc_error, Arch, HookType, Mode, Permission, RegisterARM, Unicorn, SECOND_SCALE,
 };
@@ -40,41 +43,6 @@ const ARM_REG: [RegisterARM; 17] = [
     RegisterARM::CPSR,
 ];
 
-#[derive(Hash, PartialEq, Eq, Clone)]
-pub struct TracePoint {
-    pub address: u64,
-    pub size: usize,
-    pub asm_instruction: Vec<u8>,
-    pub registers: Option<[u32; 17]>,
-}
-
-#[derive(Clone)]
-pub struct SimulationFaultRecord {
-    pub index: usize,
-    pub record: TracePoint,
-    pub fault_type: FaultType,
-}
-
-impl TracePoint {
-    pub fn get_fault_record(&self, index: usize, fault_type: FaultType) -> SimulationFaultRecord {
-        SimulationFaultRecord {
-            index,
-            record: self.clone(),
-            fault_type,
-        }
-    }
-}
-
-impl fmt::Debug for SimulationFaultRecord {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        writeln!(
-            f,
-            "address: 0x{:X} size: 0x{:?} fault_type: {:?}",
-            self.record.address, self.record.size, self.fault_type
-        )
-    }
-}
-
 #[derive(PartialEq, Debug, Clone, Copy, Default)]
 enum RunState {
     #[default]
@@ -82,24 +50,6 @@ enum RunState {
     Success,
     Failed,
     Error,
-}
-
-#[derive(Clone, Debug)]
-pub struct FaultData {
-    pub data: Vec<u8>,
-    pub data_changed: Vec<u8>,
-    pub fault: SimulationFaultRecord,
-}
-
-impl FaultData {
-    pub fn get_simulation_fault_records(
-        fault_data_records: &[FaultData],
-    ) -> Vec<SimulationFaultRecord> {
-        fault_data_records
-            .iter()
-            .map(|record| record.fault.clone())
-            .collect()
-    }
 }
 
 #[derive(Default)]
@@ -342,34 +292,37 @@ impl<'a> Simulation<'a> {
 
     /// Set fault at specified address with given parameters
     ///
-    /// Original and replaced data is stored for restauration
+    /// Original and replaced data is stored for restoring
     /// and printing
     fn set_fault(&mut self, record: &SimulationFaultRecord) {
         let mut fault_data_entry = FaultData {
-            data: Vec::new(),
-            data_changed: Vec::new(),
+            original_instructions: Vec::new(),
+            manipulated_instructions: Vec::new(),
             fault: record.clone(),
         };
         // Generate data with fault specific handling
         match fault_data_entry.fault.fault_type {
             FaultType::Glitch(number) => {
-                fault_data_entry.fault.record.size = 0;
+                fault_data_entry.fault.record.instruction_size = 0;
                 let mut address = fault_data_entry.fault.record.address;
                 for _count in 0..number {
                     let temp_size = self.get_asm_cmd_size(address).unwrap();
                     for i in 0..temp_size {
-                        fault_data_entry.data_changed.push(*T1_NOP.get(i).unwrap())
+                        fault_data_entry
+                            .manipulated_instructions
+                            .push(*T1_NOP.get(i).unwrap())
                     }
                     address += temp_size as u64;
-                    fault_data_entry.fault.record.size += temp_size;
+                    fault_data_entry.fault.record.instruction_size += temp_size;
                 }
                 // Set to same size as data_changed
-                fault_data_entry.data = fault_data_entry.data_changed.clone();
+                fault_data_entry.original_instructions =
+                    fault_data_entry.manipulated_instructions.clone();
                 // Read original data
                 self.emu
                     .mem_read(
                         fault_data_entry.fault.record.address,
-                        &mut fault_data_entry.data,
+                        &mut fault_data_entry.original_instructions,
                     )
                     .unwrap();
             }
@@ -465,9 +418,9 @@ impl<'a> Simulation<'a> {
 
     fn add_to_trace(&mut self, fault: &FaultData) {
         let mut record = TracePoint {
-            size: fault.fault.record.size,
+            instruction_size: fault.fault.record.instruction_size,
             address: fault.fault.record.address,
-            asm_instruction: fault.data_changed.clone(),
+            asm_instruction: fault.manipulated_instructions.clone(),
             registers: None,
         };
 
@@ -482,7 +435,9 @@ impl<'a> Simulation<'a> {
 
     fn emulate_fault(&mut self, fault: &FaultData) {
         match fault.fault.fault_type {
-            FaultType::Glitch(_) => self.program_counter += fault.fault.record.size as u64,
+            FaultType::Glitch(_) => {
+                self.program_counter += fault.fault.record.instruction_size as u64
+            }
         }
     }
 }

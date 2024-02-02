@@ -1,8 +1,7 @@
-use crate::fault_attacks::simulation::FaultData;
 use addr2line::{fallible_iterator::FallibleIterator, gimli};
 use capstone::prelude::*;
 
-use super::simulation::TracePoint;
+use crate::fault::{FaultData, TracePoint};
 
 pub struct Disassembly {
     cs: Capstone,
@@ -21,14 +20,20 @@ impl Disassembly {
         Self { cs }
     }
 
-    fn disassembly_fault_data(&self, fault_data: &FaultData) {
+    fn disassemble_fault_data(&self, fault_data: &FaultData) {
         let insns_data = self
             .cs
-            .disasm_all(&fault_data.data, fault_data.fault.record.address)
+            .disasm_all(
+                &fault_data.original_instructions,
+                fault_data.fault.record.address,
+            )
             .expect("Failed to disassemble");
         let insns_data_changed = self
             .cs
-            .disasm_all(&fault_data.data_changed, fault_data.fault.record.address)
+            .disasm_all(
+                &fault_data.manipulated_instructions,
+                fault_data.fault.record.address,
+            )
             .expect("Failed to disassemble");
 
         for i in 0..insns_data.as_ref().len() {
@@ -46,15 +51,13 @@ impl Disassembly {
         }
     }
 
-    fn disassembly_trace_point(&self, trace_record: &TracePoint) {
+    fn disassemble_trace_point(&self, trace_record: &TracePoint) {
         let insns_data = self
             .cs
             .disasm_all(&trace_record.asm_instruction, trace_record.address)
             .expect("Failed to disassemble");
 
-        for i in 0..insns_data.as_ref().len() {
-            let ins = &insns_data.as_ref()[i];
-
+        for ins in insns_data.iter() {
             print!(
                 "0x{:X}:  {:6} {:40}     < ",
                 ins.address(),
@@ -82,7 +85,6 @@ impl Disassembly {
     }
 
     /// Print fault data of given fault_data_vec vector
-    ///
     pub fn print_fault_records(
         &self,
         fault_data_vec: &Option<Vec<Vec<FaultData>>>,
@@ -97,24 +99,8 @@ impl Disassembly {
                 .for_each(|(attack_num, fault_context)| {
                     println!("Attack number {}", attack_num + 1);
                     fault_context.iter().for_each(|fault_data| {
-                        self.disassembly_fault_data(fault_data);
-                        if let Ok(frames) = debug_context
-                            .find_frames(fault_data.fault.record.address)
-                            .skip_all_loads()
-                        {
-                            for frame in frames.iterator().flatten() {
-                                if let Some(location) = frame.location {
-                                    match (location.file, location.line) {
-                                        (Some(file), Some(line)) => {
-                                            println!("\t\t{:?}:{:?}", file, line)
-                                        }
-
-                                        (Some(file), None) => println!("\t\t{:?}", file),
-                                        _ => println!("No debug info available"),
-                                    }
-                                }
-                            }
-                        }
+                        self.disassemble_fault_data(fault_data);
+                        self.print_debug_info(fault_data.fault.record.address, debug_context);
                         println!();
                     });
                     println!("------------------------");
@@ -122,12 +108,34 @@ impl Disassembly {
         }
     }
 
+    fn print_debug_info(
+        &self,
+        address: u64,
+        debug_context: &addr2line::Context<
+            gimli::EndianReader<gimli::RunTimeEndian, std::rc::Rc<[u8]>>,
+        >,
+    ) {
+        if let Ok(frames) = debug_context.find_frames(address).skip_all_loads() {
+            for frame in frames.iterator().flatten() {
+                if let Some(location) = frame.location {
+                    match (location.file, location.line) {
+                        (Some(file), Some(line)) => {
+                            println!("\t\t{:?}:{:?}", file, line)
+                        }
+
+                        (Some(file), None) => println!("\t\t{:?}", file),
+                        _ => println!("No debug info available"),
+                    }
+                }
+            }
+        }
+    }
+
     /// Print trace_record of given trace_records vector
-    ///
     pub fn print_trace_records(&self, trace_records: &Option<Vec<TracePoint>>) {
         if let Some(trace_records) = trace_records {
             trace_records.iter().for_each(|trace_record| {
-                self.disassembly_trace_point(trace_record);
+                self.disassemble_trace_point(trace_record);
             });
             println!("------------------------");
         }

@@ -1,6 +1,8 @@
 use unicorn_engine::MemType;
 
-use super::{debug, EmulationData, RunState, TracePoint, Unicorn, ARM_REG, BOOT_STAGE};
+use crate::fault::TracePoint;
+
+use super::{debug, EmulationData, RunState, Unicorn, ARM_REG, BOOT_STAGE};
 
 /// Callback for auth mem IO write access
 ///
@@ -73,7 +75,7 @@ pub fn tracing_callback(emu: &mut Unicorn<EmulationData>, address: u64, size: u3
     if emu_data.tracing {
         // Prepare data record
         let mut record = TracePoint {
-            size: size as usize,
+            instruction_size: size as usize,
             address,
             asm_instruction: vec![0x00; size as usize],
             registers: None,
