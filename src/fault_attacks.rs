@@ -1,4 +1,5 @@
 mod simulation;
+use addr2line::gimli;
 use simulation::*;
 
 mod elf_file;
@@ -23,7 +24,7 @@ use crate::FaultType;
 
 pub struct FaultAttacks {
     cs: Disassembly,
-    file_data: ElfFile,
+    pub file_data: ElfFile,
     fault_data: Option<Vec<Vec<FaultData>>>,
     pub count_sum: usize,
 }
@@ -41,8 +42,13 @@ impl FaultAttacks {
         }
     }
 
-    pub fn print_fault_data(&self) {
-        self.cs.print_fault_records(&self.fault_data);
+    pub fn print_fault_data(
+        &self,
+        debug_context: &addr2line::Context<
+            gimli::EndianReader<gimli::RunTimeEndian, std::rc::Rc<[u8]>>,
+        >,
+    ) {
+        self.cs.print_fault_records(&self.fault_data, debug_context);
     }
 
     pub fn print_trace_for_fault(&self, attack_number: usize) {
@@ -115,46 +121,11 @@ impl FaultAttacks {
         (self.fault_data.is_some(), self.count_sum)
     }
 
-    /// Run program with single bit flip on every instruction injected as an fault attack
-    ///
-    // pub fn single_bit_flip(&mut self) -> (bool, usize) {
-    //     let mut count = 0;
-    //     // Get trace data from negative run
-    //     let records = trace_run(&self.file_data, vec![]);
-    //     // Print overview
-    //     records.iter().for_each(|rec| count += rec.size * 8);
-    //     let bar = ProgressBar::new(count as u64);
-    //     println!("Fault injection: Bit-Flip (Cached)");
-    //     // Setup sender and receiver
-    //     let (sender, receiver) = channel();
-    //     // Start all threads (all will execute with a single address)
-    //     records.into_par_iter().for_each_with(sender, |s, record| {
-    //         for bit_pos in 0..(record.size * 8) {
-    //             let mut temp_record = record;
-    //             temp_record.set_fault_type(FaultType::BitFlipCached(bit_pos));
-    //             simulation_run(&self.file_data, &[temp_record], s);
-    //             bar.inc(1);
-    //         }
-    //     });
-    //     bar.finish_and_clear();
-    //     println!("-> {count} attacks executed");
-    //     // Return collected successful attacks to caller
-    //     let data: Vec<_> = receiver.iter().collect();
-    //     self.cs.print_fault_records(&data);
-
-    //     self.count_sum += count;
-
-    //     if data.is_empty() {
-    //         return (false, self.count_sum);
-    //     }
-    //     (true, self.count_sum)
-    // }
-
     /// Run program with a single nop instruction injected as an fault attack
     ///
     pub fn cached_nop_simulation_x_y(
         &self,
-        records: &Vec<TraceRecord>,
+        records: &Vec<TracePoint>,
         low_complexity: bool,
         num_x: usize,
         num_y: usize,
@@ -224,9 +195,11 @@ fn trace_run(
     full_trace: bool,
     low_complexity: bool,
     records: Vec<SimulationFaultRecord>,
-) -> Vec<TraceRecord> {
+) -> Vec<TracePoint> {
     let mut simulation = Simulation::new(file_data);
-    simulation.record_code_trace(full_trace, low_complexity, records).to_vec()
+    simulation
+        .record_code_trace(full_trace, low_complexity, records)
+        .to_vec()
 }
 
 fn simulation_run(
@@ -239,16 +212,3 @@ fn simulation_run(
         s.send(fault_data_vec).unwrap();
     }
 }
-
-// Check for repeated loop
-// let last = intermediate_records.last().unwrap();
-// let mut int_rec = intermediate_records.clone();
-// int_rec.reverse();
-// let found = int_rec
-//     .iter()
-//     .find_position(|rec| rec.address != last.address);
-// if let Some(found) = found {
-//     if found.0 != 1 {
-//         println!("{:?}", found);
-//     }
-// }

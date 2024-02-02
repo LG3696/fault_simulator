@@ -3,34 +3,34 @@ use crate::FaultType;
 use super::ElfFile;
 
 mod fault_injections;
+pub use fault_injections::FaultData;
 use fault_injections::*;
-pub use fault_injections::{FaultData, FaultType};
 
 use log::debug;
 use std::fmt;
 
 #[derive(Hash, PartialEq, Eq, Clone)]
-pub struct TraceRecord {
+pub struct TracePoint {
     pub address: u64,
     pub size: usize,
     pub asm_instruction: Vec<u8>,
-    pub registers: Option<[u32;17]>,
+    pub registers: Option<[u32; 17]>,
 }
 
 #[derive(Clone)]
 pub struct SimulationFaultRecord {
     pub index: usize,
-    pub record: TraceRecord,
+    pub record: TracePoint,
     pub fault_type: FaultType,
 }
 
-impl TraceRecord {
+impl TracePoint {
     pub fn get_fault_record(&self, index: usize, fault_type: FaultType) -> SimulationFaultRecord {
-         SimulationFaultRecord {
+        SimulationFaultRecord {
             index,
             record: self.clone(),
             fault_type,
-        } 
+        }
     }
 }
 
@@ -86,16 +86,14 @@ impl<'a> Simulation<'a> {
         full_trace: bool,
         low_complexity: bool,
         faults: Vec<SimulationFaultRecord>,
-    ) -> &Vec<TraceRecord> {
+    ) -> &Vec<TracePoint> {
         // Initialize and load
         self.init_and_load(false);
         // Deactivate io print
         self.emu.deactivate_printf_function();
 
         // Write all faults into fault_data list
-        faults
-            .iter()
-            .for_each(|attack| self.emu.set_fault(attack));
+        faults.iter().for_each(|attack| self.emu.set_fault(attack));
 
         // Set hook with faults and run program
         self.emu.set_trace_hook(faults);
@@ -115,7 +113,7 @@ impl<'a> Simulation<'a> {
                 ret_val = self.emu.run_steps(fault.fault.index, false);
             }
             if ret_val.is_ok() {
-                self.emu.skip_asm_cmds(&fault);
+                self.emu.emulate_fault(&fault);
                 // If full trace is required, add fault cmds to trace
                 if full_trace {
                     self.emu.add_to_trace(&fault);
@@ -132,7 +130,7 @@ impl<'a> Simulation<'a> {
 
         if low_complexity {
             self.emu.reduce_trace();
-        } 
+        }
         self.emu.get_trace()
     }
 
@@ -180,7 +178,7 @@ impl<'a> Simulation<'a> {
                     ret_val = self.emu.run_steps(fault.fault.index, false);
                 }
                 if ret_val.is_ok() {
-                    self.emu.skip_asm_cmds(fault);
+                    self.emu.emulate_fault(fault);
                 }
             });
 

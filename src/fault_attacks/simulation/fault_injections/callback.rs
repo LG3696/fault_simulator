@@ -1,4 +1,4 @@
-use super::{debug, EmulationData, MemType, RunState, TraceRecord, Unicorn, ARM_REG, BOOT_STAGE};
+use super::{debug, EmulationData, MemType, RunState, TracePoint, Unicorn, ARM_REG, BOOT_STAGE};
 
 /// Callback for auth mem IO write access
 ///
@@ -65,15 +65,15 @@ pub(super) fn hook_code_flash_load_img_callback(
 
 /// Code Hook for tracing functionality
 ///
-pub(super) fn hook_code_callback(emu: &mut Unicorn<EmulationData>, address: u64, size: u32) {
-    let emu_data = &emu.get_data();
+pub(super) fn tracing_callback(emu: &mut Unicorn<EmulationData>, address: u64, size: u32) {
+    let emu_data = emu.get_data();
     // Check if tracing is already started
-    if emu_data.start_trace {
+    if emu_data.tracing {
         // Prepare data record
-        let mut record = TraceRecord {
+        let mut record = TracePoint {
             size: size as usize,
             address,
-            asm_instruction:  vec![0x00; size as usize],
+            asm_instruction: vec![0x00; size as usize],
             registers: None,
             //            cpsr: emu.reg_read(RegisterARM::CPSR).unwrap() as u32,
         };
@@ -91,69 +91,3 @@ pub(super) fn hook_code_callback(emu: &mut Unicorn<EmulationData>, address: u64,
         emu.get_data_mut().trace_data.push(record);
     }
 }
-
-// Code Hook for attack simulation
-//
-// 1. Case: Single attack
-//     a. Record negative command trace: cmd_trace
-//         a1. Analyze trace to find double addresses -> Set count of double addresses from 1 to n
-//             Setup hashtable if value is already in list count++ in hash table and set count of vec array to new count value
-//     b. Attack inserted from start to beginning of neagtive test flow cmd_trace[0..]
-//         b1. Go through the list if address match check count: If count > 1: count-- else insert attack remove entry
-// 2. Case: Double attack
-//     a. Set single attack -> Start record after empty fault array
-//         a1. Analyze trace to find double addresses -> Set count of double addresses from 1 to n
-//             Setup hashtable if value is already in list count++ in hash table and set count of vec array to new count value
-//     b. Attack inserted from start to beginning of neagtive test flow cmd_trace[0..]
-//         b1. Go through the list if address match check count: If count > 1: count-- else insert attack remove entry
-//
-// pub(super) fn hook_nop_code_callback(emu: &mut Unicorn<EmulationData>, address: u64, _size: u32) {
-//     // search for corresponding fault
-//     if let Some(fault) = emu.get_data().fault_data.first() {
-//         let fault = fault.clone();
-//         // Check address
-//         if fault.fault.address == address {
-//             // println!("Taken : 0x{:X}", fault.fault.address);
-//             emu.get_data_mut().fault_data.remove(0);
-//             // Skip instruction(s)
-//             skip_asm_cmds(emu, &fault);
-//         }
-//     }
-// }
-
-// Code Hook for tracing functionality with attack simulation
-//
-// pub(super) fn hook_nop_code_callback_trace(
-//     emu: &mut Unicorn<EmulationData>,
-//     address: u64,
-//     size: u32,
-// ) {
-//     // search for corresponding fault
-//     if let Some(fault) = emu.get_data().fault_data.first() {
-//         let fault = fault.clone();
-//         // Check address
-//         if fault.fault.address == address {
-//             // println!("Taken : 0x{:X}", fault.fault.address);
-//             emu.get_data_mut().fault_data.remove(0);
-//             // Skip instruction(s)
-//             skip_asm_cmds(emu, &fault);
-//         }
-//     }
-//     // Record complete trace flow
-//     emu.get_data_mut().trace_data.push(TraceRecord {
-//         size: size as usize,
-//         address: address,
-//     });
-// }
-
-// Skip instruction(s)
-// fn skip_asm_cmds(emu: &mut Unicorn<EmulationData>, fault: &FaultData) {
-//     // Save and restore CPSR register as Unicorn changes its value
-//     let cpsr = emu.reg_read(RegisterARM::CPSR).unwrap();
-//     emu.reg_write(
-//         RegisterARM::PC,
-//         (fault.fault.address + fault.fault.size as u64) | 1,
-//     )
-//     .unwrap();
-//     emu.reg_write(RegisterARM::CPSR, cpsr).unwrap();
-// }

@@ -1,6 +1,6 @@
 use crate::FaultType;
 
-use super::{ElfFile, SimulationFaultRecord, TraceRecord};
+use super::{ElfFile, SimulationFaultRecord, TracePoint};
 
 mod callback;
 use callback::*;
@@ -52,13 +52,6 @@ pub enum RunState {
     Error,
 }
 
-#[derive(Clone, Copy, Debug)]
-pub enum FaultType {
-    //    Uninitialized,
-    Glitch(usize),
-    // BitFlipCached(usize),
-}
-
 #[derive(Clone, Debug)]
 pub struct FaultData {
     pub data: Vec<u8>,
@@ -86,11 +79,11 @@ pub struct FaultInjections<'a> {
 #[derive(Default)]
 struct EmulationData {
     state: RunState,
-    start_trace: bool,
+    tracing: bool,
     with_register_data: bool,
     negative_run: bool,
     deactivate_print: bool,
-    trace_data: Vec<TraceRecord>,
+    trace_data: Vec<TracePoint>,
     fault_data: Vec<FaultData>,
 }
 
@@ -141,7 +134,8 @@ impl<'a> FaultInjections<'a> {
 
         // Write wrong flash data to boot stage memory
         let boot_stage: [u8; 4] = [0xB8, 0x45, 0x85, 0xFD];
-        self.emu.mem_write(BOOT_STAGE, &boot_stage)
+        self.emu
+            .mem_write(BOOT_STAGE, &boot_stage)
             .expect("failed to write boot stage data");
     }
 
@@ -286,21 +280,7 @@ impl<'a> FaultInjections<'a> {
                         &mut fault_data_entry.data,
                     )
                     .unwrap();
-            } // FaultType::BitFlipCached(pos) => {
-              //     let temp_size = self
-              //         .get_asm_cmd_size(fault_data_entry.fault.address)
-              //         .unwrap();
-              //     fault_data_entry.data = vec![0; temp_size];
-              //     // Read original data
-              //     self.emu
-              //         .mem_read(fault_data_entry.fault.address, &mut fault_data_entry.data)
-              //         .unwrap();
-              //     fault_data_entry.data_changed = fault_data_entry.data.clone();
-              //     fault_data_entry.data_changed[pos / 8] ^= (0x01_u8).shl(pos % 8);
-              // }
-              // _ => {
-              //     panic!("No fault type set")
-              // }
+            }
         }
         // Push to fault data vector
         self.emu.get_data_mut().fault_data.push(fault_data_entry);
@@ -346,13 +326,13 @@ impl<'a> FaultInjections<'a> {
             .add_code_hook(
                 self.file_data.program_header.p_paddr,
                 self.file_data.program_header.p_memsz,
-                hook_code_callback,
+                tracing_callback,
             )
             .expect("failed to setup trace hook");
     }
 
     pub fn start_tracing(&mut self) {
-        self.emu.get_data_mut().start_trace = true;
+        self.emu.get_data_mut().tracing = true;
     }
 
     pub fn with_register_data(&mut self) {
@@ -367,19 +347,19 @@ impl<'a> FaultInjections<'a> {
     }
 
     /// Copy trace data to caller
-    pub fn get_trace(&self) -> &Vec<TraceRecord> {
+    pub fn get_trace(&self) -> &Vec<TracePoint> {
         &self.emu.get_data().trace_data
     }
 
     /// Remove duplicates to speed up testing
-    pub fn reduce_trace(&mut self){
+    pub fn reduce_trace(&mut self) {
         let trace_data = &mut self.emu.get_data_mut().trace_data;
-        let hash_set: HashSet<TraceRecord> = HashSet::from_iter(trace_data.clone());
+        let hash_set: HashSet<TracePoint> = HashSet::from_iter(trace_data.clone());
         *trace_data = Vec::from_iter(hash_set);
     }
 
     pub fn add_to_trace(&mut self, fault: &FaultData) {
-        let mut record = TraceRecord {
+        let mut record = TracePoint {
             size: fault.fault.record.size,
             address: fault.fault.record.address,
             asm_instruction: fault.data_changed.clone(),
@@ -395,7 +375,9 @@ impl<'a> FaultInjections<'a> {
         self.emu.get_data_mut().trace_data.push(record);
     }
 
-    pub fn skip_asm_cmds(&mut self, fault: &FaultData) {
-        self.program_counter += fault.fault.record.size as u64;
+    pub fn emulate_fault(&mut self, fault: &FaultData) {
+        match fault.fault.fault_type {
+            FaultType::Glitch(_) => self.program_counter += fault.fault.record.size as u64,
+        }
     }
 }

@@ -1,7 +1,8 @@
 use crate::fault_attacks::simulation::FaultData;
+use addr2line::{fallible_iterator::FallibleIterator, gimli};
 use capstone::prelude::*;
 
-use super::simulation::TraceRecord;
+use super::simulation::TracePoint;
 
 pub struct Disassembly {
     cs: Capstone,
@@ -45,7 +46,7 @@ impl Disassembly {
         }
     }
 
-    fn disassembly_trace_record(&self, trace_record: &TraceRecord) {
+    fn disassembly_trace_point(&self, trace_record: &TracePoint) {
         let insns_data = self
             .cs
             .disasm_all(&trace_record.asm_instruction, trace_record.address)
@@ -53,7 +54,7 @@ impl Disassembly {
 
         for i in 0..insns_data.as_ref().len() {
             let ins = &insns_data.as_ref()[i];
-    
+
             print!(
                 "0x{:X}:  {:6} {:40}     < ",
                 ins.address(),
@@ -61,24 +62,20 @@ impl Disassembly {
                 ins.op_str().unwrap(),
             );
             if let Some(registers) = &trace_record.registers {
-                let reg_list: [usize;9] = [16,0,1,2,3,4,5,6,7];
+                let reg_list: [usize; 9] = [16, 0, 1, 2, 3, 4, 5, 6, 7];
 
-                reg_list
-                    .iter()
-                    .for_each(|index| {
-                        if *index == 16 {
-                            let cpsr =  registers[*index];
-                            let flag_n = ( cpsr & 0x80000000) >> 31;
-                            let flag_z = (cpsr & 0x40000000) >> 30;
-                            let flag_c = (cpsr & 0x20000000) >> 29;
-                            let flag_v = (cpsr & 0x10000000) >> 28;
-                            print!("NZCV:{}{}{}{} ", flag_n, flag_z, flag_c, flag_v);
-                        }
-                        else
-                        {
-                            print!("R{}=0x{:08X} ", index, registers[*index]);
-                        }
-                    });
+                reg_list.iter().for_each(|index| {
+                    if *index == 16 {
+                        let cpsr = registers[*index];
+                        let flag_n = (cpsr & 0x80000000) >> 31;
+                        let flag_z = (cpsr & 0x40000000) >> 30;
+                        let flag_c = (cpsr & 0x20000000) >> 29;
+                        let flag_v = (cpsr & 0x10000000) >> 28;
+                        print!("NZCV:{}{}{}{} ", flag_n, flag_z, flag_c, flag_v);
+                    } else {
+                        print!("R{}=0x{:08X} ", index, registers[*index]);
+                    }
+                });
             }
             println!(">");
         }
@@ -86,7 +83,13 @@ impl Disassembly {
 
     /// Print fault data of given fault_data_vec vector
     ///
-    pub fn print_fault_records(&self, fault_data_vec: &Option<Vec<Vec<FaultData>>>) {
+    pub fn print_fault_records(
+        &self,
+        fault_data_vec: &Option<Vec<Vec<FaultData>>>,
+        debug_context: &addr2line::Context<
+            gimli::EndianReader<gimli::RunTimeEndian, std::rc::Rc<[u8]>>,
+        >,
+    ) {
         if let Some(fault_data_vec) = fault_data_vec {
             fault_data_vec
                 .iter()
@@ -95,6 +98,25 @@ impl Disassembly {
                     println!("Attack number {}", attack_num + 1);
                     fault_context.iter().for_each(|fault_data| {
                         self.disassembly_fault_data(fault_data);
+                        if let Ok(frames) = debug_context
+                            .find_frames(fault_data.fault.record.address)
+                            .skip_all_loads()
+                        {
+                            for frame in frames.iterator() {
+                                if let Ok(frame) = frame {
+                                    if let Some(location) = frame.location {
+                                        match (location.file, location.line) {
+                                            (Some(file), Some(line)) => {
+                                                println!("\t\t{:?}:{:?}", file, line)
+                                            }
+
+                                            (Some(file), None) => println!("\t\t{:?}", file),
+                                            _ => println!("No debug info available"),
+                                        }
+                                    }
+                                }
+                            }
+                        }
                         println!();
                     });
                     println!("------------------------");
@@ -104,10 +126,10 @@ impl Disassembly {
 
     /// Print trace_record of given trace_records vector
     ///
-    pub fn print_trace_records(&self, trace_records: &Option<Vec<TraceRecord>>) {
+    pub fn print_trace_records(&self, trace_records: &Option<Vec<TracePoint>>) {
         if let Some(trace_records) = trace_records {
             trace_records.iter().for_each(|trace_record| {
-                self.disassembly_trace_record(trace_record);
+                self.disassembly_trace_point(trace_record);
             });
             println!("------------------------");
         }
