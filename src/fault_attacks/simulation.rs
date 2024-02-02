@@ -1,3 +1,5 @@
+use crate::FaultType;
+
 use super::ElfFile;
 
 mod fault_injections;

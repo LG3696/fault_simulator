@@ -1,9 +1,7 @@
 use clap::Parser;
+use fault_simulator::FaultAttacks;
 use std::io::stdout;
 use std::io::{self, Write};
-
-mod fault_attacks;
-use fault_attacks::FaultAttacks;
 
 use std::env;
 

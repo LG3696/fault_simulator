@@ -1,4 +1,4 @@
-// use std::ops::Shl;
+use crate::FaultType;
 
 use super::{ElfFile, SimulationFaultRecord, TraceRecord};
 

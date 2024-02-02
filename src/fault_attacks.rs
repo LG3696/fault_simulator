@@ -19,6 +19,8 @@ use itertools::Itertools;
 
 use log::debug;
 
+use crate::FaultType;
+
 pub struct FaultAttacks {
     cs: Disassembly,
     file_data: ElfFile,
