@@ -141,7 +141,7 @@ impl FaultAttacks {
         let bar = ProgressBar::new(records.len() as u64);
         // Setup sender and receiver
         let (sender, receiver) = channel();
-        let temp_file_data = &self.file_data;
+        let file_data = &self.file_data;
 
         records
             .into_par_iter()
@@ -153,15 +153,11 @@ impl FaultAttacks {
 
                 if num_y == 0 {
                     n.fetch_add(1, Ordering::Relaxed);
-                    simulation_run(temp_file_data, &[fault_record.clone()], s);
+                    simulation_run(file_data, &[fault_record.clone()], s);
                 } else {
                     // Get intermediate trace data from negative run with inserted nop -> new program flow
-                    let intermediate_trace_records = trace_run(
-                        temp_file_data,
-                        false,
-                        low_complexity,
-                        vec![fault_record.clone()],
-                    );
+                    let intermediate_trace_records =
+                        trace_run(file_data, false, low_complexity, vec![fault_record.clone()]);
 
                     n.fetch_add(intermediate_trace_records.len(), Ordering::Relaxed);
                     // Run full test with intemediate trace data
@@ -170,7 +166,7 @@ impl FaultAttacks {
                             let intermediate_fault_record = intermediate_trace_records
                                 .get_fault_record(index, FaultType::Glitch(num_y));
                             simulation_run(
-                                temp_file_data,
+                                file_data,
                                 &[fault_record.clone(), intermediate_fault_record],
                                 s,
                             );
@@ -196,8 +192,7 @@ fn trace_run(
     low_complexity: bool,
     records: Vec<SimulationFaultRecord>,
 ) -> Vec<TracePoint> {
-    let mut simulation = Simulation::new(file_data);
-    simulation
+    Simulation::new(file_data)
         .record_code_trace(full_trace, low_complexity, records)
         .to_vec()
 }
@@ -207,8 +202,7 @@ fn simulation_run(
     records: &[SimulationFaultRecord],
     s: &mut Sender<Vec<FaultData>>,
 ) {
-    let mut simulation = Simulation::new(file_data);
-    if let Some(fault_data_vec) = simulation.run_with_faults(records) {
+    if let Some(fault_data_vec) = Simulation::new(file_data).run_with_faults(records) {
         s.send(fault_data_vec).unwrap();
     }
 }

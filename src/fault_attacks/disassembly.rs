@@ -102,17 +102,15 @@ impl Disassembly {
                             .find_frames(fault_data.fault.record.address)
                             .skip_all_loads()
                         {
-                            for frame in frames.iterator() {
-                                if let Ok(frame) = frame {
-                                    if let Some(location) = frame.location {
-                                        match (location.file, location.line) {
-                                            (Some(file), Some(line)) => {
-                                                println!("\t\t{:?}:{:?}", file, line)
-                                            }
-
-                                            (Some(file), None) => println!("\t\t{:?}", file),
-                                            _ => println!("No debug info available"),
+                            for frame in frames.iterator().flatten() {
+                                if let Some(location) = frame.location {
+                                    match (location.file, location.line) {
+                                        (Some(file), Some(line)) => {
+                                            println!("\t\t{:?}:{:?}", file, line)
                                         }
+
+                                        (Some(file), None) => println!("\t\t{:?}", file),
+                                        _ => println!("No debug info available"),
                                     }
                                 }
                             }
