@@ -135,11 +135,6 @@ impl<'a> Simulation<'a> {
         self.emu.get_data().state
     }
 
-    /// Get fault_data
-    fn get_fault_data(&self) -> &Vec<FaultData> {
-        &self.emu.get_data().fault_data
-    }
-
     /// Check if code under investigation is working correct for
     /// positive and negative execution
     ///
@@ -227,7 +222,7 @@ impl<'a> Simulation<'a> {
             .unwrap();
     }
 
-    /// Record the program flow till the program ends on positiv or negative program execution
+    /// Record the program flow till the program ends on positive or negative program execution
     /// A vector array with the recorded addresses is returned
     pub fn record_code_trace(
         &mut self,
@@ -241,9 +236,6 @@ impl<'a> Simulation<'a> {
         // Deactivate io print
         self.deactivate_printf_function();
 
-        // Write all faults into fault_data list
-        faults.iter().for_each(|attack| self.set_fault(attack));
-
         // Set hook with faults and run program
         self.emu
             .add_code_hook(
@@ -253,8 +245,6 @@ impl<'a> Simulation<'a> {
             )
             .expect("failed to setup trace hook");
 
-        let fault_data = self.get_fault_data().clone();
-
         // If full trace is required, switch on tracing from the beginning
         if full_trace {
             self.start_tracing();
@@ -262,17 +252,13 @@ impl<'a> Simulation<'a> {
         }
 
         // Get the first one, set it and start
-        fault_data.into_iter().for_each(|fault| {
+        faults.into_iter().for_each(|fault| {
             let mut ret_val = Ok(());
-            if fault.fault.index != 0 {
-                ret_val = self.run_steps(fault.fault.index);
+            if fault.index != 0 {
+                ret_val = self.run_steps(fault.index);
             }
             if ret_val.is_ok() {
                 self.emulate_fault(&fault);
-                // If full trace is required, add fault cmds to trace
-                if full_trace {
-                    self.add_to_trace(&fault);
-                }
             }
         });
 
@@ -282,7 +268,7 @@ impl<'a> Simulation<'a> {
         // Run
         let _ret_val = self.run_steps(MAX_INSTRUCTIONS);
 
-        self.release_usage_fault_hooks();
+        self.emu.get_data_mut().fault_data.clear();
 
         if low_complexity {
             self.reduce_trace();
@@ -290,79 +276,30 @@ impl<'a> Simulation<'a> {
         self.get_trace()
     }
 
-    /// Set fault at specified address with given parameters
-    ///
-    /// Original and replaced data is stored for restoring
-    /// and printing
-    fn set_fault(&mut self, record: &SimulationFaultRecord) {
-        let mut fault_data_entry = FaultData {
-            original_instructions: Vec::new(),
-            manipulated_instructions: Vec::new(),
-            fault: record.clone(),
-        };
-        // Generate data with fault specific handling
-        match fault_data_entry.fault.fault_type {
-            FaultType::Glitch(number) => {
-                fault_data_entry.fault.record.instruction_size = 0;
-                let mut address = fault_data_entry.fault.record.address;
-                for _count in 0..number {
-                    let temp_size = self.get_asm_cmd_size(address).unwrap();
-                    for i in 0..temp_size {
-                        fault_data_entry
-                            .manipulated_instructions
-                            .push(*T1_NOP.get(i).unwrap())
-                    }
-                    address += temp_size as u64;
-                    fault_data_entry.fault.record.instruction_size += temp_size;
-                }
-                // Set to same size as data_changed
-                fault_data_entry.original_instructions =
-                    fault_data_entry.manipulated_instructions.clone();
-                // Read original data
-                self.emu
-                    .mem_read(
-                        fault_data_entry.fault.record.address,
-                        &mut fault_data_entry.original_instructions,
-                    )
-                    .unwrap();
-            }
-        }
-        // Push to fault data vector
-        self.emu.get_data_mut().fault_data.push(fault_data_entry);
-    }
-
     /// Execute loaded code with the given faults injected before code execution
     /// If code finishes with successful state, a vector array will be returned with the
     /// injected faults
-    pub fn run_with_faults(
-        &mut self,
-        external_record: &[SimulationFaultRecord],
-    ) -> Option<Vec<FaultData>> {
+    pub fn run_with_faults(&mut self, faults: &[&SimulationFaultRecord]) -> Option<Vec<FaultData>> {
         self.init_and_load(false);
 
         // Deactivate io print
         self.deactivate_printf_function();
 
-        // Write all faults into fault_data list
-        external_record
-            .iter()
-            .for_each(|attack| self.set_fault(attack));
-
-        let fault_data = self.get_fault_data().clone();
         // Get the first one, set it and start
-        if !fault_data.is_empty() {
-            fault_data.iter().for_each(|fault| {
+        if !faults.is_empty() {
+            faults.iter().for_each(|fault| {
                 let mut ret_val = Ok(());
-                if fault.fault.index != 0 {
-                    ret_val = self.run_steps(fault.fault.index);
+                if fault.index != 0 {
+                    ret_val = self.run_steps(fault.index);
                 }
                 if ret_val.is_ok() {
-                    self.emulate_fault(fault);
+                    let fault_data = self.emulate_fault(fault);
+                    self.emu.get_data_mut().fault_data.push(fault_data);
                 }
             });
 
             if self.get_state() == RunState::Success {
-                println!("Da schein ein Fehler aufgetreten zu sein");
+                println!("Da scheint ein Fehler aufgetreten zu sein");
                 return None;
             }
 
@@ -370,7 +307,7 @@ impl<'a> Simulation<'a> {
             let _ret_val = self.run_steps(MAX_INSTRUCTIONS);
             // Check state
             if self.get_state() == RunState::Success {
-                return Some(fault_data);
+                return Some(self.emu.get_data().fault_data.clone());
             }
         }
 
@@ -397,13 +334,6 @@ impl<'a> Simulation<'a> {
         self.emu.get_data_mut().with_register_data = true;
     }
 
-    /// Release hook function and all stored data in internal structure
-    ///
-    fn release_usage_fault_hooks(&mut self) {
-        // Remove hooks from list
-        self.emu.get_data_mut().fault_data.clear();
-    }
-
     /// Copy trace data to caller
     fn get_trace(&self) -> &Vec<TracePoint> {
         &self.emu.get_data().trace_data
@@ -416,28 +346,57 @@ impl<'a> Simulation<'a> {
         *trace_data = Vec::from_iter(hash_set);
     }
 
-    fn add_to_trace(&mut self, fault: &FaultData) {
-        let mut record = TracePoint {
-            instruction_size: fault.fault.record.instruction_size,
-            address: fault.fault.record.address,
-            asm_instruction: fault.manipulated_instructions.clone(),
-            registers: None,
+    fn emulate_glitch(
+        &mut self,
+        number_of_nops: usize,
+        fault: &SimulationFaultRecord,
+    ) -> FaultData {
+        let address = self.program_counter;
+        let mut manipulated_instructions = Vec::new();
+        let registers = if self.emu.get_data().with_register_data {
+            let mut registers: [u32; 17] = [0; 17];
+            ARM_REG.iter().enumerate().for_each(|(index, register)| {
+                registers[index] = self.emu.reg_read(*register).unwrap() as u32;
+            });
+            Some(registers)
+        } else {
+            None
         };
-
-        let mut registers: [u32; 17] = [0; 17];
-        ARM_REG.iter().enumerate().for_each(|(index, register)| {
-            registers[index] = self.emu.reg_read(*register).unwrap() as u32;
-        });
-        record.registers = Some(registers);
-        // Record data
-        self.emu.get_data_mut().trace_data.push(record);
+        let mut nop_size = 0;
+        for _count in 0..number_of_nops {
+            let instruction_size = self.get_asm_cmd_size(address + nop_size).unwrap();
+            manipulated_instructions.extend_from_slice(&T1_NOP[..instruction_size]);
+            if self.emu.get_data().tracing {
+                let trace_point = TracePoint {
+                    address: address + nop_size,
+                    asm_instruction: T1_NOP[..instruction_size].to_vec(),
+                    registers,
+                };
+                self.emu.get_data_mut().trace_data.push(trace_point);
+            }
+            nop_size += instruction_size as u64;
+        }
+        // Set to same size as data_changed
+        let mut original_instructions = manipulated_instructions.clone();
+        // Read original data
+        self.emu
+            .mem_read(address, &mut original_instructions)
+            .unwrap();
+        self.program_counter += nop_size;
+        FaultData {
+            original_instructions,
+            record: TracePoint {
+                address,
+                asm_instruction: manipulated_instructions,
+                registers,
+            },
+            fault: *fault,
+        }
     }
 
-    fn emulate_fault(&mut self, fault: &FaultData) {
-        match fault.fault.fault_type {
-            FaultType::Glitch(_) => {
-                self.program_counter += fault.fault.record.instruction_size as u64
-            }
+    fn emulate_fault(&mut self, fault: &SimulationFaultRecord) -> FaultData {
+        match fault.fault_type {
+            FaultType::Glitch(number_of_nops) => self.emulate_glitch(number_of_nops, fault),
         }
     }
 }

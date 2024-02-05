@@ -23,23 +23,17 @@ impl Disassembly {
     fn disassemble_fault_data(&self, fault_data: &FaultData) {
         let insns_data = self
             .cs
-            .disasm_all(
-                &fault_data.original_instructions,
-                fault_data.fault.record.address,
-            )
+            .disasm_all(&fault_data.original_instructions, fault_data.record.address)
             .expect("Failed to disassemble");
         let insns_data_changed = self
             .cs
             .disasm_all(
-                &fault_data.manipulated_instructions,
-                fault_data.fault.record.address,
+                &fault_data.record.asm_instruction,
+                fault_data.record.address,
             )
             .expect("Failed to disassemble");
 
-        for i in 0..insns_data.as_ref().len() {
-            let ins = &insns_data.as_ref()[i];
-            let ins_changed = &insns_data_changed.as_ref()[i];
-
+        for (ins, ins_changed) in insns_data.iter().zip(insns_data_changed.iter()) {
             println!(
                 "0x{:X}:  {} {} -> {} {}",
                 ins.address(),
@@ -100,7 +94,7 @@ impl Disassembly {
                     println!("Attack number {}", attack_num + 1);
                     fault_context.iter().for_each(|fault_data| {
                         self.disassemble_fault_data(fault_data);
-                        self.print_debug_info(fault_data.fault.record.address, debug_context);
+                        self.print_debug_info(fault_data.record.address, debug_context);
                         println!();
                     });
                     println!("------------------------");
@@ -132,12 +126,10 @@ impl Disassembly {
     }
 
     /// Print trace_record of given trace_records vector
-    pub fn print_trace_records(&self, trace_records: &Option<Vec<TracePoint>>) {
-        if let Some(trace_records) = trace_records {
-            trace_records.iter().for_each(|trace_record| {
-                self.disassemble_trace_point(trace_record);
-            });
-            println!("------------------------");
-        }
+    pub fn print_trace_records(&self, trace_records: &[TracePoint]) {
+        trace_records.iter().for_each(|trace_record| {
+            self.disassemble_trace_point(trace_record);
+        });
+        println!("------------------------");
     }
 }

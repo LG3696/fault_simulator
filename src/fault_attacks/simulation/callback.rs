@@ -75,11 +75,9 @@ pub fn tracing_callback(emu: &mut Unicorn<EmulationData>, address: u64, size: u3
     if emu_data.tracing {
         // Prepare data record
         let mut record = TracePoint {
-            instruction_size: size as usize,
             address,
             asm_instruction: vec![0x00; size as usize],
             registers: None,
-            //            cpsr: emu.reg_read(RegisterARM::CPSR).unwrap() as u32,
         };
         emu.mem_read(address, &mut record.asm_instruction).unwrap();
 

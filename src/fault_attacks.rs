@@ -57,7 +57,7 @@ impl FaultAttacks {
             let fault_records =
                 FaultData::get_simulation_fault_records(fault_data.get(attack_number).unwrap());
             // Run full trace
-            let trace_records = Some(trace_run(&self.file_data, true, false, fault_records));
+            let trace_records = trace_run(&self.file_data, true, false, fault_records);
             // Print trace
             println!("\nAssembler trace of attack number {}", attack_number + 1);
 
@@ -147,28 +147,28 @@ impl FaultAttacks {
         records
             .into_par_iter()
             .enumerate()
-            .for_each_with(sender, |s, (index, record)| {
-                let fault_record = record.get_fault_record(index, FaultType::Glitch(num_x));
+            .for_each_with(sender, |s, (index, _record)| {
+                let fault_record = SimulationFaultRecord::new(index, FaultType::Glitch(num_x));
 
                 bar.inc(1);
 
                 if num_y == 0 {
                     n.fetch_add(1, Ordering::Relaxed);
-                    simulation_run(file_data, &[fault_record.clone()], s);
+                    simulation_run(file_data, &[&fault_record], s);
                 } else {
                     // Get intermediate trace data from negative run with inserted nop -> new program flow
                     let intermediate_trace_records =
-                        trace_run(file_data, false, low_complexity, vec![fault_record.clone()]);
+                        trace_run(file_data, false, low_complexity, vec![fault_record]);
 
                     n.fetch_add(intermediate_trace_records.len(), Ordering::Relaxed);
                     // Run full test with intermediate trace data
                     intermediate_trace_records.into_iter().enumerate().for_each(
-                        |(index, intermediate_trace_records)| {
-                            let intermediate_fault_record = intermediate_trace_records
-                                .get_fault_record(index, FaultType::Glitch(num_y));
+                        |(index, _intermediate_trace_records)| {
+                            let intermediate_fault_record =
+                                SimulationFaultRecord::new(index, FaultType::Glitch(num_y));
                             simulation_run(
                                 file_data,
-                                &[fault_record.clone(), intermediate_fault_record],
+                                &[&fault_record, &intermediate_fault_record],
                                 s,
                             );
                         },
@@ -200,7 +200,7 @@ fn trace_run(
 
 fn simulation_run(
     file_data: &ElfFile,
-    records: &[SimulationFaultRecord],
+    records: &[&SimulationFaultRecord],
     s: &mut Sender<Vec<FaultData>>,
 ) {
     if let Some(fault_data_vec) = Simulation::new(file_data).run_with_faults(records) {
