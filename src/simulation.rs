@@ -228,7 +228,7 @@ impl<'a> Simulation<'a> {
         &mut self,
         full_trace: bool,
         low_complexity: bool,
-        faults: Vec<SimulationFaultRecord>,
+        faults: &[SimulationFaultRecord],
     ) -> &Vec<TracePoint> {
         // Initialize and load
         self.init_and_load(false);
@@ -279,7 +279,7 @@ impl<'a> Simulation<'a> {
     /// Execute loaded code with the given faults injected before code execution
     /// If code finishes with successful state, a vector array will be returned with the
     /// injected faults
-    pub fn run_with_faults(&mut self, faults: &[&SimulationFaultRecord]) -> Option<Vec<FaultData>> {
+    pub fn run_with_faults(&mut self, faults: &[SimulationFaultRecord]) -> Option<Vec<FaultData>> {
         self.init_and_load(false);
 
         // Deactivate io print
